@@ -478,6 +478,26 @@ static inline void cryptonight_monero_tweak(uint64_t* mem_out, const uint8_t* l,
     }
 }
 
+inline __m128 _mm_set1_ps_epi32(uint32_t x)
+{
+	return _mm_castsi128_ps(_mm_set1_epi32(x));
+}
+
+inline void cryptonight_conceal_tweak(__m128i& cx, __m128& conc_var)
+{
+	__m128 r = _mm_cvtepi32_ps(cx);
+	__m128 c_old = conc_var;
+	r = _mm_add_ps(r, conc_var);
+	r = _mm_mul_ps(r, _mm_mul_ps(r, r));
+	r = _mm_and_ps(_mm_set1_ps_epi32(0x807FFFFF), r);
+	r = _mm_or_ps(_mm_set1_ps_epi32(0x40000000), r);
+	conc_var = _mm_add_ps(conc_var, r);
+
+	c_old = _mm_and_ps(_mm_set1_ps_epi32(0x807FFFFF), c_old);
+	c_old = _mm_or_ps(_mm_set1_ps_epi32(0x40000000), c_old);
+	__m128 nc = _mm_mul_ps(c_old, _mm_set1_ps(536870880.0f));
+	cx = _mm_xor_si128(cx, _mm_cvttps_epi32(nc));
+}
 
 template<xmrig::Algo ALGO, bool SOFT_AES, xmrig::Variant VARIANT>
 inline void cryptonight_single_hash(const uint8_t *__restrict__ input, size_t size, uint8_t *__restrict__ output, cryptonight_ctx **__restrict__ ctx)
@@ -509,6 +529,7 @@ inline void cryptonight_single_hash(const uint8_t *__restrict__ input, size_t si
     uint64_t ah0 = h0[1] ^ h0[5];
     __m128i bx0 = _mm_set_epi64x(h0[3] ^ h0[7], h0[2] ^ h0[6]);
     __m128i bx1 = _mm_set_epi64x(h0[9] ^ h0[11], h0[8] ^ h0[10]);
+    __m128 conc_var = _mm_setzero_ps();
 
     uint64_t idx0 = al0;
 
@@ -517,6 +538,9 @@ inline void cryptonight_single_hash(const uint8_t *__restrict__ input, size_t si
         if (VARIANT == xmrig::VARIANT_TUBE || !SOFT_AES) {
             cx = _mm_load_si128((__m128i *) &l0[idx0 & MASK]);
         }
+
+        if (VARIANT == xmrig::VARIANT_CONC)
+            cryptonight_conceal_tweak(cx, conc_var);
 
         const __m128i ax0 = _mm_set_epi64x(ah0, al0);
         if (VARIANT == xmrig::VARIANT_TUBE) {
